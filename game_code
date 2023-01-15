@@ -1,0 +1,666 @@
+import java.util.ArrayList;
+import java.util.Random;
+import tester.*;
+import javalib.impworld.*;
+// import javalib.worldcanvas.WorldCanvas;
+
+import java.awt.Color;
+import javalib.worldimages.*;
+
+//design decision Notes:
+//when the board is flooding, do not take in any other mouse clicks
+
+// extra credit effects: 
+// the colors of the displayed word "floodit" are colors that are currently on the board
+// each color's percentage changes every onTick
+
+// Represents a single square of the game area
+class Cell {
+  Color color;
+  Cell top;
+  Cell bottom;
+  Cell left;
+  Cell right;
+
+  // constructs the Cell without the top, bottom, left, or right fields
+  public Cell(Color color) {
+    this.color = color;
+    this.top = this;
+    this.bottom = this;
+    this.right = this;
+    this.left = this;
+  }
+
+  // updates both this cell and the given cell to show that the given cell
+  // is ABOVE this cell
+  void updateAbove(Cell that) {
+    this.top = that;
+    that.bottom = this;
+  }
+
+  // updates both this cell and the given cell to show that the given cell
+  // is to the LEFT of this cell
+  void updateLeft(Cell that) {
+    this.left = that;
+    that.right = this;
+  }
+
+  // updates the color of this cell to the given color
+  void updateColor(Color col) {
+    this.color = col;
+  }
+
+  // adds the adjacent neighbors to the given list if they have the same color
+  // as the given target color
+  public void addToList(ArrayList<Cell> temp, Color targetCol, Color prevColor) {
+    this.color = targetCol;
+    if (this.top.color.equals(prevColor) && !temp.contains(this.top)) {
+      temp.add(this.top);
+    }
+    if (this.bottom.color.equals(prevColor) && !temp.contains(this.bottom)) {
+      temp.add(this.bottom);
+    }
+    if (this.left.color.equals(prevColor) && !temp.contains(this.left)) {
+      temp.add(this.left);
+    }
+    if (this.right.color.equals(prevColor) && !temp.contains(this.right)) {
+      temp.add(this.right);
+    }
+  }
+}
+
+// represents the game FloodIt
+class FloodItWorld extends World {
+  // All the cells of the game
+  ArrayList<ArrayList<Cell>> board;
+  // cells that need to be changed
+  ArrayList<Cell> cellsToBeChanged;
+  // represents the previous color prior to the flood
+  Color prevColor;
+  // represents the number of guesses Remaining
+  int triesRemaining;
+  // need to store the number of colors for the reset
+  int numOfColors;
+
+  // first constructor
+  public FloodItWorld(int size, int numOfColors) {
+    this(size, numOfColors, new Random());
+  }
+
+  // seeded constructor to create a seeded buildboard
+  public FloodItWorld(int size, int numOfColors, Random rand) {
+    if (size <= 0) {
+      throw new RuntimeException("Cannot have a board with 0 size");
+    }
+    else if (numOfColors <= 0) {
+      throw new RuntimeException("Cannot have a board with 0 colors");
+    }
+    this.board = this.buildSeededBoard(size, numOfColors, rand);
+    this.cellsToBeChanged = new ArrayList<Cell>();
+    this.numOfColors = numOfColors;
+    this.triesRemaining = this.generateTries(size);
+  }
+
+  // generates the number of tries a person gets based on the size
+  // and number of colors used to create the board
+  public int generateTries(int size) {
+    return (size * (this.numOfColors + 2)) / 4;
+  }
+
+  // builds n rows of the board that has n cells in it
+  // Is now used for all constructors
+  ArrayList<ArrayList<Cell>> buildSeededBoard(int size, int numOfColors, Random rand) {
+    ArrayList<ArrayList<Cell>> result = new ArrayList<ArrayList<Cell>>();
+    for (int column = 0; column < size; column = column + 1) { // builds n rows
+      ArrayList<Cell> oneRow = new ArrayList<Cell>();
+      for (int row = 0; row < size; row = row + 1) { // builds one row
+        Cell tempCell = new Cell(this.getRandColor(rand.nextInt(numOfColors)));
+        oneRow.add(tempCell);
+        if (column > 0) {
+          tempCell.updateAbove(result.get(column - 1).get(row));
+        }
+        if (row > 0) {
+          tempCell.updateLeft(oneRow.get(row - 1));
+        }
+      }
+      result.add(oneRow);
+    }
+    return result;
+  }
+
+  // returns a color that corresponds to the given number
+  // Method name is slightly misleading as it does not take in a random value,
+  // but is used to clarify in the context it is used
+  Color getRandColor(int randVal) {
+    if (randVal == 0) {
+      return Color.red;
+    }
+    else if (randVal == 1) {
+      return Color.green;
+    }
+    else if (randVal == 2) {
+      return Color.blue;
+    }
+    else if (randVal == 3) {
+      return Color.orange;
+    }
+    else if (randVal == 4) {
+      return Color.cyan;
+    }
+    else if (randVal == 5) {
+      return Color.pink;
+    }
+    else {
+      throw new RuntimeException("invalid number of Colors");
+    }
+  }
+
+  // counts the amount of times the given color appears on the board
+  // and returns the percentage of the board that this color occupies
+  public int percentColor(Color target) {
+    int count = 0;
+    for (ArrayList<Cell> arrCell : this.board) {
+      for (Cell c : arrCell) {
+        if (c.color.equals(target)) {
+          count += 1;
+        }
+      }
+    }
+    return count * 100 / (this.board.size() * this.board.size());
+  }
+
+  // draws the given percentColor along with the corresponding color
+  public WorldImage drawPercentColor(Color target) {
+    WorldImage col = new RectangleImage(10, 10, OutlineMode.SOLID, target);
+    WorldImage percent = new TextImage(this.percentColor(target) + "%", 10, Color.black);
+    return new OverlayImage(new AboveImage(col, percent),
+        new RectangleImage(20, 30, OutlineMode.OUTLINE, Color.white));
+  }
+
+  // draws all of the Color Percentages
+  public WorldImage drawAllColorPercent() {
+    WorldImage accum = new EmptyImage();
+    for (int i = 0; i < this.numOfColors; i += 1) {
+      accum = new BesideImage(accum, this.drawPercentColor(this.getRandColor(i)));
+    }
+    return accum;
+  }
+
+  // draws an image representing this board
+  WorldImage drawBoard() {
+    WorldImage bkg = new EmptyImage();
+    for (int i = 0; i < board.size(); i += 1) {
+      WorldImage row = new EmptyImage();
+      for (int j = 0; j < board.get(i).size(); j += 1) {
+        Cell temp = this.board.get(i).get(j);
+        row = new BesideImage(row, new RectangleImage(20, 20, OutlineMode.SOLID, temp.color));
+      }
+      bkg = new AboveImage(bkg, row);
+    }
+    return new OverlayImage(bkg, new RectangleImage(this.board.size() * 20 + 20,
+        this.board.size() * 20 + 20, OutlineMode.SOLID, Color.black));
+  }
+
+  // shows the number of guesses remaining
+  public WorldImage drawGuessesRemaining() {
+    WorldImage text = new TextImage("Tries Remaining:", 15, Color.black);
+    WorldImage remaining = new TextImage(Integer.toString(this.triesRemaining), 20, Color.red);
+    return new OverlayImage(new AboveImage(text, remaining),
+        new RectangleImage(110, 35, OutlineMode.OUTLINE, Color.white));
+  }
+
+  public WorldImage drawColorfulFloodit(Random rand) {
+    WorldImage f = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("F", 25, this.getRandColor(rand.nextInt(this.numOfColors))));
+    WorldImage l = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("l", 25, this.getRandColor(rand.nextInt(this.numOfColors))));
+    WorldImage o1 = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("o", 25, this.getRandColor(rand.nextInt(this.numOfColors))));
+    WorldImage o2 = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("o", 25, this.getRandColor(rand.nextInt(this.numOfColors))));
+    WorldImage d = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("d", 25, this.getRandColor(rand.nextInt(this.numOfColors))));
+    WorldImage i = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("i", 25, this.getRandColor(rand.nextInt(this.numOfColors))));
+    WorldImage t = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("t", 25, this.getRandColor(rand.nextInt(this.numOfColors))));
+    return new OverlayImage(new BesideImage(f, l, o1, o2, d, i, t),
+        new RectangleImage(120, 25, OutlineMode.OUTLINE, Color.white));
+  }
+
+  // creates the scene that will be drawn every tick
+  public WorldScene makeScene() {
+    WorldScene bkg = this.getEmptyScene();
+    int halfboard = this.board.size() * 10 + 20;
+    bkg.placeImageXY(this.drawBoard(), halfboard, halfboard);
+    WorldImage text = new AboveImage(this.drawGuessesRemaining(), this.drawAllColorPercent(),
+        this.drawColorfulFloodit(new Random()));
+    // place the text to the right of the board + half of its width, and halfway
+    // down its total length
+    bkg.placeImageXY(text, halfboard * 2 + 50, 50);
+    return bkg;
+  }
+
+  // returns the color at the given posn position of the mouse
+  public Color getColorAtMouse(Posn mouse) {
+    int posX = mouse.x / 20 - 1;
+    int posY = mouse.y / 20 - 1;
+    // dont want to throw an error, seems too punishing for the player
+    if (posX >= this.board.size() || posX < 0 || posY >= this.board.get(0).size() || posY < 0) {
+      return Color.black;
+    }
+    return this.board.get(posY).get(posX).color;
+  }
+
+  // handles the mouseclicked situation with the given mouse click location
+  // set the prevColor field to this color stored in the top left corner
+  // change the top left corner to the given color and add it to the cells to be
+  // changed
+  public void onMouseClicked(Posn pos) {
+    Color targetCol = this.getColorAtMouse(pos);
+    // if the person clicked somewhere off the functioning board
+    if (targetCol.equals(Color.black) || this.cellsToBeChanged.size() != 0
+        || targetCol.equals(this.prevColor)) {
+      return;
+    }
+    Cell temp = this.board.get(0).get(0);
+    this.prevColor = temp.color;
+    temp.updateColor(targetCol);
+    this.cellsToBeChanged.add(temp);
+    this.triesRemaining--;
+  }
+
+  // returns true if the entire board is one color
+  public boolean allOneColor() {
+    Color firstCol = this.board.get(0).get(0).color;
+    for (ArrayList<Cell> arCell : this.board) {
+      for (Cell c : arCell) {
+        if (!c.color.equals(firstCol)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  // handles every tick
+  // the cells to be changed field only hold cells that are immediately
+  // adjacent, and is refreshed at the end of each onTick to reflect
+  // the new cells that are
+  public void onTick() {
+    Cell first = this.board.get(0).get(0);
+    ArrayList<Cell> temp = new ArrayList<Cell>();
+    for (Cell c : this.cellsToBeChanged) {
+      c.addToList(temp, first.color, this.prevColor);
+    }
+    this.cellsToBeChanged = temp;
+
+    if (this.cellsToBeChanged.size() == 0) {
+      this.prevColor = first.color;
+      if (this.allOneColor()) {
+        this.endOfWorld("You Win!");
+      }
+      if (this.triesRemaining == 0) {
+        this.endOfWorld("You Lost!");
+      }
+    }
+  }
+
+  // keyhandler: Only cares about "r", which will reset the game
+  public void onKeyEvent(String key) {
+    if (key.equals("r")) {
+      this.board = this.buildSeededBoard(this.board.size(), this.numOfColors, new Random());
+      this.cellsToBeChanged = new ArrayList<Cell>();
+      this.prevColor = this.board.get(0).get(0).color;
+      this.triesRemaining = this.generateTries(this.board.size());
+    }
+  }
+
+  // creates the last scene of the game (displays win or lose message)
+  public WorldScene lastScene(String msg) {
+    WorldScene bkg = this.makeScene();
+    bkg.placeImageXY(new TextImage(msg, 15, Color.black), this.windowWidthSize() / 4,
+        this.windowHeightSize() - 10);
+    return bkg;
+  }
+
+  // creates the scale for the window's width
+  public int windowWidthSize() {
+    // needs to account for board, and additional text to the right
+    return this.board.size() * 20 + 160;
+  }
+
+  // creates the scale for the window's height
+  public int windowHeightSize() {
+    return Math.max(this.board.size() * 20 + 60, 120);
+  }
+
+}
+
+class ExampleFloodIt {
+  FloodItWorld world1;
+  FloodItWorld world2;
+  FloodItWorld world3;
+  FloodItWorld world4;
+  Cell cell1;
+  Cell cell2;
+  Cell cell3;
+
+  // creates initial conditions to be tested
+  void initConditions() {
+    world1 = new FloodItWorld(2, 1);
+    world2 = new FloodItWorld(3, 3);
+    world3 = new FloodItWorld(10, 6);
+    world4 = new FloodItWorld(3, 3, new Random(0));
+    cell1 = new Cell(Color.red);
+    cell2 = new Cell(Color.blue);
+    cell3 = new Cell(Color.orange);
+  }
+
+  // tests the drawColorfulFloodit method in the FloodItWorld class
+  void testDrawColorfulFloodit(Tester t) {
+    this.initConditions();
+    Random rand = new Random(0);
+    WorldImage f = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("F", 25, this.world1.getRandColor(rand.nextInt(1))));
+    WorldImage l = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("l", 25, this.world1.getRandColor(rand.nextInt(1))));
+    WorldImage o1 = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("o", 25, this.world1.getRandColor(rand.nextInt(1))));
+    WorldImage o2 = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("o", 25, this.world1.getRandColor(rand.nextInt(1))));
+    WorldImage d = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("d", 25, this.world1.getRandColor(rand.nextInt(1))));
+    WorldImage i = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("i", 25, this.world1.getRandColor(rand.nextInt(1))));
+    WorldImage tee = new OverlayImage(new RectangleImage(15, 30, OutlineMode.OUTLINE, Color.white),
+        new TextImage("t", 25, this.world1.getRandColor(rand.nextInt(1))));
+    t.checkExpect(this.world1.drawColorfulFloodit(new Random(0)),
+        new OverlayImage(new BesideImage(f, l, o1, o2, d, i, tee),
+            new RectangleImage(120, 25, OutlineMode.OUTLINE, Color.white)));
+
+  }
+
+  // tests the updateAbove method in the Cell class
+  void testUpdateAbove(Tester t) {
+    this.initConditions();
+    this.cell1.updateAbove(this.cell2);
+    t.checkExpect(this.cell1.top, this.cell2);
+    t.checkExpect(this.cell2.bottom, this.cell1);
+  }
+
+  // tests the updateLeft method in the cell class
+  void testUpdateLeft(Tester t) {
+    this.initConditions();
+    this.cell1.updateLeft(this.cell2);
+    t.checkExpect(this.cell1.left, this.cell2);
+    t.checkExpect(this.cell2.right, this.cell1);
+  }
+
+  // tests the updateColor method in the cell class
+  void testUpdateColor(Tester t) {
+    this.initConditions();
+    this.cell1.updateColor(Color.yellow);
+    this.cell2.updateColor(Color.black);
+    t.checkExpect(this.cell1.color, Color.yellow);
+    t.checkExpect(this.cell2.color, Color.black);
+  }
+
+  // tests the addToList method in the FloodItWorld class
+  void testAddToList(Tester t) {
+    this.initConditions();
+    ArrayList<Cell> temp = new ArrayList<Cell>();
+    this.cell1.updateColor(Color.yellow);
+    this.cell2.updateColor(Color.yellow);
+    this.cell3.updateColor(Color.black);
+    cell2.updateAbove(cell1);
+    cell3.updateLeft(cell2);
+    this.cell2.addToList(temp, Color.black, Color.yellow);
+    t.checkExpect(temp.get(0), cell1);
+    t.checkExpect(temp.size(), 1);
+  }
+
+  // tests the generateTries method in FloodItWorld class
+  void checkGenerateTries(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.generateTries(2), (1 + 2) * 2 / 4);
+    t.checkExpect(this.world2.generateTries(3), (1 + 3) * 3 / 4);
+    t.checkExpect(this.world3.generateTries(6), (1 + 10) * 6 / 4);
+  }
+
+  // tests different aspects of the buildBoard method in the FloodItWorld Class
+  void testBuildBoard(Tester t) {
+    this.initConditions();
+    t.checkConstructorException(new RuntimeException("Cannot have a board with 0 size"),
+        "FloodItWorld", 0, 1);
+    t.checkConstructorException(new RuntimeException("Cannot have a board with 0 colors"),
+        "FloodItWorld", 1, 0);
+    t.checkExpect(this.world1.board.size(), 2);
+    t.checkExpect(this.world1.board.get(0).size(), 2);
+    t.checkExpect(this.world1.board.get(0).get(0).color, Color.red);
+    t.checkExpect(this.world1.board.get(0).get(1).color, Color.red);
+    t.checkExpect(this.world1.board.get(1).get(0).color, Color.red);
+    t.checkExpect(this.world1.board.get(1).get(1).color, Color.red);
+    t.checkExpect(this.world1.board.get(0).get(0).right, this.world1.board.get(0).get(1));
+    t.checkExpect(this.world1.board.get(0).get(0).bottom, this.world1.board.get(1).get(0));
+    t.checkExpect(this.world1.board.get(0).get(0).left, cell1);
+    t.checkExpect(this.world1.board.get(0).get(0).top, this.world1.board.get(0).get(0));
+    t.checkOneOf(this.world2.board.get(0).get(0).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(0).get(1).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(0).get(2).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(1).get(0).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(1).get(1).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(1).get(2).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(2).get(0).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(2).get(1).color, Color.red, Color.green, Color.blue);
+    t.checkOneOf(this.world2.board.get(2).get(2).color, Color.red, Color.green, Color.blue);
+    t.checkExpect(this.world4.board.get(0).get(0).color,
+        this.world4.getRandColor(new Random(0).nextInt(3)));
+  }
+
+  // tests the getRandColor method in the FloodItWorldClass
+  void testGetRandColor(Tester t) {
+    this.initConditions();
+    t.checkExpect(world1.getRandColor(0), Color.red);
+    t.checkExpect(world1.getRandColor(1), Color.green);
+    t.checkExpect(world1.getRandColor(2), Color.blue);
+    t.checkExpect(world1.getRandColor(3), Color.orange);
+    t.checkExpect(world1.getRandColor(4), Color.cyan);
+    t.checkExpect(world1.getRandColor(5), Color.pink);
+  }
+
+  // tests the drawBoard method in the FloodItWorld Class
+  void testDrawBoard(Tester t) {
+    this.initConditions();
+    WorldImage mt = new EmptyImage();
+    WorldImage row1 = new BesideImage(
+        new BesideImage(mt, new RectangleImage(20, 20, OutlineMode.SOLID, Color.red)),
+        new RectangleImage(20, 20, OutlineMode.SOLID, Color.red));
+    WorldImage row2 = new BesideImage(
+        new BesideImage(mt, new RectangleImage(20, 20, OutlineMode.SOLID, Color.red)),
+        new RectangleImage(20, 20, OutlineMode.SOLID, Color.red));
+    WorldImage world1img = new OverlayImage(new AboveImage(new AboveImage(mt, row1), row2),
+        new RectangleImage(2 * 20 + 20, 2 * 20 + 20, OutlineMode.SOLID, Color.black));
+    t.checkExpect(this.world1.drawBoard(), world1img);
+
+    // world4 is constructed with the seeded constructor
+    Random rand = new Random(0);
+    WorldImage firstRow = new BesideImage(
+        new BesideImage(
+            new BesideImage(mt,
+                new RectangleImage(20, 20, OutlineMode.SOLID,
+                    this.world4.getRandColor(rand.nextInt(3)))),
+            new RectangleImage(20, 20, OutlineMode.SOLID,
+                this.world4.getRandColor(rand.nextInt(3)))),
+        new RectangleImage(20, 20, OutlineMode.SOLID, this.world4.getRandColor(rand.nextInt(3))));
+    WorldImage secondRow = new BesideImage(
+        new BesideImage(
+            new BesideImage(mt,
+                new RectangleImage(20, 20, OutlineMode.SOLID,
+                    this.world4.getRandColor(rand.nextInt(3)))),
+            new RectangleImage(20, 20, OutlineMode.SOLID,
+                this.world4.getRandColor(rand.nextInt(3)))),
+        new RectangleImage(20, 20, OutlineMode.SOLID, this.world4.getRandColor(rand.nextInt(3))));
+    WorldImage thirdRow = new BesideImage(
+        new BesideImage(
+            new BesideImage(mt,
+                new RectangleImage(20, 20, OutlineMode.SOLID,
+                    this.world4.getRandColor(rand.nextInt(3)))),
+            new RectangleImage(20, 20, OutlineMode.SOLID,
+                this.world4.getRandColor(rand.nextInt(3)))),
+        new RectangleImage(20, 20, OutlineMode.SOLID, this.world4.getRandColor(rand.nextInt(3))));
+    WorldImage world4Drawn = new OverlayImage(
+        new AboveImage(new AboveImage(new AboveImage(mt, firstRow), secondRow), thirdRow),
+        new RectangleImage(3 * 20 + 20, 3 * 20 + 20, OutlineMode.SOLID, Color.black));
+    t.checkExpect(this.world4.drawBoard(), world4Drawn);
+  }
+
+  // tests the windowHeightSize method in the FloodItWorld class
+  void testWindowHeightSize(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world3.windowHeightSize(), 260);
+    t.checkExpect(this.world2.windowHeightSize(), 120);
+    t.checkExpect(this.world1.windowHeightSize(), 120);
+  }
+
+  // tests the windowWidthSize method in the FloodItWorld class
+  void testWindowWidthSize(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world3.windowWidthSize(), 360);
+    t.checkExpect(this.world2.windowWidthSize(), 220);
+    t.checkExpect(this.world1.windowWidthSize(), 200);
+  }
+
+  // tests the allOneColor method in the FloodItWorld class
+  void testAllOneColor(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.allOneColor(), true);
+    t.checkExpect(this.world2.allOneColor(), false);
+    t.checkExpect(this.world3.allOneColor(), false);
+  }
+
+  // tests the percentColor method in the FloodItWorld class
+  void testPercentColor(Tester t) {
+    t.checkRange(this.world1.percentColor(Color.red), 0, 101);
+    t.checkRange(this.world2.percentColor(Color.blue), 0, 101);
+    t.checkRange(this.world3.percentColor(Color.red), 0, 101);
+  }
+
+  // tests the DrawGuessesRemaining method in FloodItWorld class
+  void testDrawGuessesRemaining(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.drawGuessesRemaining(),
+        new OverlayImage(
+            new AboveImage(new TextImage("Tries Remaining:", 15, Color.black),
+                new TextImage(Integer.toString(this.world1.generateTries(2)), 20, Color.red)),
+            new RectangleImage(110, 35, OutlineMode.OUTLINE, Color.white)));
+    t.checkExpect(this.world2.drawGuessesRemaining(),
+        new OverlayImage(
+            new AboveImage(new TextImage("Tries Remaining:", 15, Color.black),
+                new TextImage(Integer.toString(this.world2.generateTries(3)), 20, Color.red)),
+            new RectangleImage(110, 35, OutlineMode.OUTLINE, Color.white)));
+    t.checkExpect(this.world3.drawGuessesRemaining(),
+        new OverlayImage(
+            new AboveImage(new TextImage("Tries Remaining:", 15, Color.black),
+                new TextImage(Integer.toString(20), 20, Color.red)),
+            new RectangleImage(110, 35, OutlineMode.OUTLINE, Color.white)));
+  }
+
+  // tests the getColorAtMouse method in the FloodItWorld class
+  void testGetColorAtMouse(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.getColorAtMouse(new Posn(50, 50)), Color.red);
+    t.checkExpect(this.world4.getColorAtMouse(new Posn(40, 40)), Color.blue);
+  }
+
+  // tests the onKeyEvent method in the FloodItWorld class
+  void testOnKeyEvent(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world2.cellsToBeChanged, new ArrayList<Cell>());
+    t.checkExpect(this.world2.triesRemaining, this.world2.generateTries(3));
+    t.checkExpect(this.world2.prevColor, null);
+    this.world2.onKeyEvent("r");
+    t.checkExpect(this.world2.cellsToBeChanged, new ArrayList<Cell>());
+    t.checkExpect(this.world2.triesRemaining, this.world2.generateTries(3));
+    t.checkExpect(this.world2.prevColor, this.world2.board.get(0).get(0).color);
+  }
+
+  // tests the drawPercentColor method in the FloodItWorld class
+  void testDrawPercentColor(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.drawPercentColor(Color.yellow),
+        new OverlayImage(
+            new AboveImage(new RectangleImage(10, 10, OutlineMode.SOLID, Color.yellow),
+                new TextImage(this.world1.percentColor(Color.yellow) + "%", 10, Color.black)),
+            new RectangleImage(20, 30, OutlineMode.OUTLINE, Color.white)));
+    t.checkExpect(this.world2.drawPercentColor(Color.red),
+        new OverlayImage(
+            new AboveImage(new RectangleImage(10, 10, OutlineMode.SOLID, Color.red),
+                new TextImage(this.world2.percentColor(Color.red) + "%", 10, Color.black)),
+            new RectangleImage(20, 30, OutlineMode.OUTLINE, Color.white)));
+    t.checkExpect(this.world3.drawPercentColor(Color.blue),
+        new OverlayImage(
+            new AboveImage(new RectangleImage(10, 10, OutlineMode.SOLID, Color.blue),
+                new TextImage(this.world3.percentColor(Color.blue) + "%", 10, Color.black)),
+            new RectangleImage(20, 30, OutlineMode.OUTLINE, Color.white)));
+  }
+
+  // tests the drawAllColorPercent method in the FloodItWorld class
+  void testDrawAllColorPercent(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.drawAllColorPercent(),
+        new BesideImage(new EmptyImage(), this.world1.drawPercentColor(Color.red)));
+  }
+
+  // tests the onTick method in the FloodItWorld class
+  void testOnTick(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.cellsToBeChanged, new ArrayList<Cell>());
+    this.world1.onTick();
+    t.checkExpect(this.world1.cellsToBeChanged, new ArrayList<Cell>());
+    t.checkExpect(this.world3.cellsToBeChanged, new ArrayList<Cell>());
+    this.world3.onTick();
+    this.world3.onMouseClicked(new Posn(40, 40));
+    t.checkOneOf(this.world3.cellsToBeChanged.get(0).color, Color.red, Color.green, Color.blue,
+        Color.orange, Color.cyan, Color.pink);
+  }
+
+  // tests the onMouseClicked method in the FloodItWorld class
+  void testOnMouseClicked(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world1.cellsToBeChanged, new ArrayList<Cell>());
+    t.checkExpect(this.world1.prevColor, null);
+    this.world1.onMouseClicked(new Posn(40, 40));
+    t.checkExpect(this.world1.prevColor, Color.red);
+    t.checkExpect(this.world1.cellsToBeChanged.get(0).color, this.world1.prevColor);
+    t.checkExpect(this.world1.board.get(0).get(0).color,
+        this.world1.getColorAtMouse(new Posn(40, 40)));
+    t.checkExpect(this.world3.prevColor, null);
+    this.world3.onMouseClicked(new Posn(40, 40));
+    t.checkExpect(this.world3.board.get(0).get(0).color,
+        this.world3.getColorAtMouse(new Posn(40, 40)));
+  }
+
+  // tests the lastScene method in the FloodItWorld class
+  // nothing about the world should change (except for the final text)
+  void testLastScene(Tester t) {
+    this.initConditions();
+    t.checkExpect(this.world2.triesRemaining, 3);
+    t.checkExpect(this.world2.prevColor, null);
+    this.world2.lastScene("You Lost!");
+    t.checkExpect(this.world2.triesRemaining, 3);
+    t.checkExpect(this.world2.prevColor, null);
+  }
+
+  /*
+   * void testBigBang(Tester t) { this.initConditions(); int worldWidth =
+   * this.world1.windowWidthSize(); int worldHeight =
+   * this.world1.windowHeightSize(); double tickRate = 0.1;
+   * this.world1.bigBang(worldWidth, worldHeight, tickRate); }
+   * 
+   * boolean testVisualizeDrawBoard(Tester t) { this.initConditions(); WorldCanvas
+   * c = new WorldCanvas(this.world2.windowWidthSize(),
+   * this.world3.windowHeightSize(), "FloodIt!"); return
+   * c.drawScene(this.world2.makeScene()) && c.show(); }
+   */
+}
